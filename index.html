@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>磁磚計畫小工具 v5.6</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f8fafc; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        .canvas-bg {
+            background-color: #e2e8f0;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+        .panel { background: white; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; }
+        .tab-active { border-bottom: 4px solid #2563eb; color: #1e40af; font-weight: 800; background-color: #eff6ff; }
+        .scroll-custom::-webkit-scrollbar { width: 6px; }
+        .scroll-custom::-webkit-scrollbar-track { background: #f1f5f9; }
+        .scroll-custom::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        #mainCanvas { cursor: crosshair; }
+        .stat-card { transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-2px); }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-[1600px] mx-auto">
+        <header class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6">
+            <div>
+                <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">磁磚計畫小工具</h1>
+                <p class="text-slate-500 mt-1 font-medium text-sm">Tile Layout & Dimensions Management v5.6</p>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-4">
+                <div class="bg-white px-5 py-2 rounded-2xl border-2 border-slate-200 flex items-center gap-4 shadow-sm">
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="show-index" checked onchange="updateAll()" class="w-4 h-4 text-blue-600 rounded">
+                        <label for="show-index" class="text-sm font-bold text-slate-700">顯示塊號</label>
+                    </div>
+                </div>
+
+                <div class="bg-white px-5 py-2 rounded-2xl border-2 border-slate-200 flex items-center gap-4 shadow-sm">
+                    <div class="flex flex-col text-right">
+                        <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Extra</span>
+                        <label class="text-[13px] font-bold text-slate-700">外加損耗</label>
+                    </div>
+                    <div class="flex items-center bg-blue-50 px-3 py-1 rounded-xl border border-blue-100">
+                        <input type="number" id="custom-loss-rate" value="0" step="0.5" min="0" 
+                               class="w-12 text-center font-black text-blue-700 bg-transparent outline-none text-xl" 
+                               oninput="updateAll()">
+                        <span class="font-bold text-blue-400 ml-1 text-sm">%</span>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-6 border-b-4 border-blue-600">
+                    <div class="flex flex-col">
+                        <p class="text-[10px] opacity-70 font-bold uppercase tracking-widest text-blue-400">需要地磚</p>
+                        <p class="text-2xl font-black tabular-nums"><span id="grand-floor-count">0</span> <small class="text-xs font-normal text-slate-500 ml-1">片</small></p>
+                        <div class="flex flex-col gap-0.5 text-[10px] font-bold mt-1">
+                            <span class="text-blue-400">總損耗: <span id="header-floor-loss">0.0</span>%</span>
+                            <div class="flex flex-col text-slate-400 border-t border-white/5 mt-0.5 pt-0.5">
+                                <span>淨面積: <span id="header-floor-net" class="text-slate-300">0.00</span> m²</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="w-px h-12 bg-white/10"></div>
+                    <div class="flex flex-col">
+                        <p class="text-[10px] opacity-70 font-bold uppercase tracking-widest text-emerald-400">需要壁磚</p>
+                        <p class="text-2xl font-black tabular-nums"><span id="grand-wall-count">0</span> <small class="text-xs font-normal text-slate-500 ml-1">片</small></p>
+                        <div class="flex flex-col gap-0.5 text-[10px] font-bold mt-1">
+                            <span class="text-emerald-400">總損耗: <span id="header-wall-loss">0.0</span>%</span>
+                            <div class="flex flex-col text-slate-400 border-t border-white/5 mt-0.5 pt-0.5">
+                                <span>淨面積: <span id="header-wall-net" class="text-slate-300">0.00</span> m²</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div class="lg:col-span-3 space-y-6">
+                <!-- 空間輪廓 -->
+                <div class="panel p-6">
+                    <div class="flex justify-between items-center mb-4 border-b pb-3">
+                        <h3 class="font-bold text-slate-800 flex items-center gap-2">空間輪廓 (cm)</h3>
+                        <button onclick="addPoint()" class="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-bold hover:bg-blue-100 transition-colors">+ 頂點</button>
+                    </div>
+                    <div id="points-container" class="space-y-3 max-h-[300px] overflow-y-auto pr-2 scroll-custom"></div>
+                </div>
+
+                <!-- 門窗開口 -->
+                <div class="panel p-6 border-t-4 border-orange-400">
+                    <div class="flex justify-between items-center mb-4 border-b pb-3">
+                        <h3 class="font-bold text-slate-800">門窗開口</h3>
+                        <button onclick="addOpening()" class="bg-orange-50 text-orange-600 px-3 py-1 rounded-full text-xs font-bold hover:bg-orange-100 transition-colors">+ 新增</button>
+                    </div>
+                    <div id="openings-container" class="space-y-3 max-h-[400px] overflow-y-auto pr-2 scroll-custom text-[12px]"></div>
+                </div>
+
+                <!-- 磁磚規格設定 -->
+                <div class="panel p-6">
+                    <h3 class="font-bold text-slate-800 mb-5 border-b pb-3">磁磚規格 & 起始點</h3>
+                    
+                    <div class="space-y-6">
+                        <div class="space-y-3 p-3 bg-blue-50/30 rounded-2xl border border-blue-100">
+                            <div class="text-[11px] font-bold text-blue-600 uppercase tracking-wider">地磚參數</div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div><label class="text-[10px] text-slate-400 block">長度 L</label><input type="number" id="tile-f-w" value="60" class="w-full border rounded-lg px-2 py-1 text-sm font-bold" oninput="updateAll()"></div>
+                                <div><label class="text-[10px] text-slate-400 block">寬度 W</label><input type="number" id="tile-f-h" value="60" class="w-full border rounded-lg px-2 py-1 text-sm font-bold" oninput="updateAll()"></div>
+                                <div><label class="text-[10px] text-blue-400 block font-bold">起點偏移 X</label><input type="number" id="f-off-x" value="0" class="w-full border-blue-200 border rounded-lg px-2 py-1 text-sm font-bold text-blue-700" oninput="updateAll()"></div>
+                                <div><label class="text-[10px] text-blue-400 block font-bold">起點偏移 Y</label><input type="number" id="f-off-y" value="0" class="w-full border-blue-200 border rounded-lg px-2 py-1 text-sm font-bold text-blue-700" oninput="updateAll()"></div>
+                                <div><label class="text-[10px] text-slate-400 block">水平縫</label><input type="number" id="f-gap-h" value="0.2" step="0.05" class="w-full border rounded-lg px-2 py-1 text-sm font-bold" oninput="updateAll()"></div>
+                                <div><label class="text-[10px] text-slate-400 block">垂直縫</label><input type="number" id="f-gap-v" value="0.2" step="0.05" class="w-full border rounded-lg px-2 py-1 text-sm font-bold" oninput="updateAll()"></div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-3 p-3 bg-emerald-50/30 rounded-2xl border border-emerald-100">
+                            <div class="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">壁磚參數</div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div><label class="text-[10px] text-slate-400 block">寬度 W</label><input type="number" id="tile-w-w" value="30" class="w-full border rounded-lg px-2 py-1 text-sm font-bold" oninput="updateAll()"></div>
+                                <div><label class="text-[10px] text-slate-400 block">高度 H</label><input type="number" id="tile-w-h" value="60" class="w-full border rounded-lg px-2 py-1 text-sm font-bold" oninput="updateAll()"></div>
+                                <div><label class="text-[10px] text-emerald-400 block font-bold">起點偏移 X</label><input type="number" id="w-off-x" value="0" class="w-full border-emerald-200 border rounded-lg px-2 py-1 text-sm font-bold text-emerald-700" oninput="updateAll()"></div>
+                                <div><label class="text-[10px] text-emerald-400 block font-bold">起點偏移 Y</label><input type="number" id="w-off-y" value="0" class="w-full border-emerald-200 border rounded-lg px-2 py-1 text-sm font-bold text-emerald-700" oninput="updateAll()"></div>
+                                <div><label class="text-[10px] text-slate-400 block">水平縫</label><input type="number" id="w-gap-h" value="0.2" step="0.05" class="w-full border rounded-lg px-2 py-1 text-sm font-bold" oninput="updateAll()"></div>
+                                <div><label class="text-[10px] text-slate-400 block">垂直縫</label><input type="number" id="w-gap-v" value="0.2" step="0.05" class="w-full border rounded-lg px-2 py-1 text-sm font-bold" oninput="updateAll()"></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-400 mb-2 uppercase">牆面總高度 (cm)</label>
+                            <input type="number" id="wall-height" value="240" class="w-full border-2 border-slate-100 rounded-xl px-4 py-2 font-bold" oninput="updateAll()">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-9 space-y-6">
+                <div class="flex border-b border-slate-200 overflow-x-auto bg-white rounded-t-2xl px-2 gap-1" id="tabs-header"></div>
+
+                <div class="panel p-8 canvas-bg min-h-[600px] flex flex-col items-center justify-center relative overflow-hidden">
+                    <div id="view-title" class="absolute top-6 left-6 text-slate-800 font-extrabold bg-white/90 backdrop-blur-md px-6 py-2 rounded-2xl shadow-sm border border-white">地坪平面圖</div>
+                    <div class="w-full flex justify-center">
+                        <canvas id="mainCanvas" class="shadow-2xl bg-white rounded-lg"></canvas>
+                    </div>
+                    
+                    <div class="absolute bottom-6 right-6 flex flex-col gap-2 bg-white/90 p-3 rounded-xl text-[10px] font-bold shadow-sm border border-slate-100">
+                        <div class="flex items-center gap-2"><div class="w-3 h-3 bg-white border border-slate-200"></div><span>完整磚 (>50% 剩餘)</span></div>
+                        <div class="flex items-center gap-2"><div class="w-3 h-3 bg-orange-400 border border-orange-600"></div><span>裁切磚 (≤50% 剩餘)</span></div>
+                        <div class="flex items-center gap-2"><div class="w-3 h-3 bg-slate-300"></div><span>開口位置 (扣除)</span></div>
+                        <div class="flex items-center gap-2 mt-1 pt-1 border-t border-slate-100"><div class="w-3 h-px bg-red-400"></div><span class="text-red-600">外邊尺寸 (cm)</span></div>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="panel p-5 border-l-8 border-blue-500 stat-card">
+                        <p class="text-[11px] font-bold text-slate-400 uppercase">鋪設淨面積</p>
+                        <p class="text-2xl font-black text-slate-800 mt-1"><span id="stat-area">0</span> <small class="text-sm font-medium">m²</small></p>
+                        <div class="mt-2 pt-2 border-t border-slate-100 text-[10px]">
+                            <p class="flex justify-between"><span>理論片數:</span> <span id="stat-theoretical" class="font-bold text-blue-600">0</span></p>
+                            <p class="flex justify-between mt-1 text-orange-500"><span>開口扣除:</span> <span id="stat-opening-deduction" class="font-bold">0.00 m²</span></p>
+                        </div>
+                    </div>
+                    <div class="panel p-5 border-l-8 border-emerald-500 stat-card">
+                        <p class="text-[11px] font-bold text-slate-400 uppercase">本視圖預估片數</p>
+                        <div class="flex items-baseline gap-2 mt-1">
+                            <span id="stat-count" class="text-3xl font-black text-slate-800">0</span>
+                            <small class="text-sm font-bold text-slate-500">片</small>
+                        </div>
+                        <div class="mt-2 pt-2 border-t border-slate-100 flex flex-col gap-1 text-[10px]">
+                            <p class="flex justify-between text-slate-500"><span>完整磚:</span> <span id="stat-full" class="font-bold">0</span></p>
+                            <p class="flex justify-between text-orange-600 font-bold"><span>裁切磚 (計0.5):</span> <span id="stat-half" class="font-bold">0</span></p>
+                        </div>
+                    </div>
+                    <div class="panel p-5 bg-slate-900 text-white rounded-2xl stat-card">
+                        <p class="text-[11px] font-bold text-slate-400/60 uppercase tracking-widest">邏輯說明</p>
+                        <ul class="mt-3 text-[10px] space-y-1 text-slate-300">
+                            <li>• 起點偏移：以左上角為基準(0,0)進行磁磚位移。</li>
+                            <li>• 面積佔比 >50% 計為 1 片，≤50% 計為 0.5 片。</li>
+                            <li>• 總表片數已進位並加上「外加損耗」。</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let points = [{x: 0, y: 0}, {x: 400, y: 0}, {x: 400, y: 300}, {x: 0, y: 300}];
+        let openings = [
+            { wallIdx: 1, w: 90, h: 210, sill: 0, offset: 50 },
+            { wallIdx: 3, w: 120, h: 120, sill: 90, offset: 80 }
+        ];
+
+        let activeTab = 'floor';
+
+        function initUI() {
+            const ptContainer = document.getElementById('points-container');
+            ptContainer.innerHTML = '';
+            points.forEach((p, i) => {
+                const div = document.createElement('div');
+                div.className = 'group flex gap-2 items-center text-[11px] p-2 bg-slate-50 rounded-xl border border-transparent hover:border-blue-200 transition-all';
+                div.innerHTML = `
+                    <span class="w-6 h-6 flex items-center justify-center bg-blue-600 text-white rounded-lg font-bold shadow-sm">${i+1}</span>
+                    <div class="flex-1 flex gap-1">
+                        <input type="number" value="${Math.round(p.x)}" class="w-full bg-white border border-slate-100 rounded px-1 py-1 text-center font-bold" onchange="editPoint(${i}, 'x', this.value)">
+                        <input type="number" value="${Math.round(p.y)}" class="w-full bg-white border border-slate-100 rounded px-1 py-1 text-center font-bold" onchange="editPoint(${i}, 'y', this.value)">
+                    </div>
+                    <button onclick="removePoint(${i})" class="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 px-1 transition-opacity">✕</button>
+                `;
+                ptContainer.appendChild(div);
+            });
+
+            const opContainer = document.getElementById('openings-container');
+            opContainer.innerHTML = '';
+            openings.forEach((op, i) => {
+                const isWindow = op.sill > 0;
+                const div = document.createElement('div');
+                div.className = `p-3 ${isWindow ? 'bg-blue-50/50 border-blue-100' : 'bg-orange-50/50 border-orange-100'} border rounded-xl space-y-2`;
+                div.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span class="font-black ${isWindow ? 'text-blue-600' : 'text-orange-600'}">#${i+1} ${isWindow ? '窗戶' : '門'}</span>
+                        <button onclick="removeOpening(${i})" class="text-slate-400 hover:text-red-500 text-[10px]">移除</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-x-2 gap-y-3">
+                        <div class="col-span-2">
+                            <label class="text-[9px] text-slate-400 block mb-1">所屬牆面</label>
+                            <select onchange="updateOpening(${i}, 'wallIdx', this.value)" class="w-full border border-slate-200 bg-white rounded p-1 font-bold">
+                                ${points.map((_, idx) => `<option value="${idx}" ${op.wallIdx == idx ? 'selected' : ''}>牆面 ${idx+1}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[9px] text-slate-400 block">寬度 (cm)</label>
+                            <input type="number" value="${op.w}" oninput="updateOpening(${i}, 'w', this.value)" class="w-full bg-white border border-slate-200 rounded p-1 font-bold">
+                        </div>
+                        <div>
+                            <label class="text-[9px] text-slate-400 block">高度 (cm)</label>
+                            <input type="number" value="${op.h}" oninput="updateOpening(${i}, 'h', this.value)" class="w-full bg-white border border-slate-200 rounded p-1 font-bold">
+                        </div>
+                        <div>
+                            <label class="text-[9px] font-bold block text-blue-500">台度 (cm)</label>
+                            <input type="number" value="${op.sill}" oninput="updateOpening(${i}, 'sill', this.value)" class="w-full bg-white border border-blue-200 rounded p-1 font-bold text-blue-700">
+                        </div>
+                        <div>
+                            <label class="text-[9px] text-slate-400 block">牆左位移 (cm)</label>
+                            <input type="number" value="${op.offset}" oninput="updateOpening(${i}, 'offset', this.value)" class="w-full bg-white border border-slate-200 rounded p-1 font-bold">
+                        </div>
+                    </div>
+                `;
+                opContainer.appendChild(div);
+            });
+            updateTabs();
+        }
+
+        function updateTabs() {
+            const header = document.getElementById('tabs-header');
+            let html = `<button onclick="switchTab('floor')" class="px-8 py-4 whitespace-nowrap text-sm font-bold ${activeTab === 'floor' ? 'tab-active rounded-t-xl' : 'text-slate-400 hover:text-slate-600'}">地坪規劃</button>`;
+            points.forEach((_, i) => {
+                html += `<button onclick="switchTab(${i})" class="px-6 py-4 whitespace-nowrap text-sm font-bold ${activeTab === i ? 'tab-active rounded-t-xl' : 'text-slate-400 hover:text-slate-600'}">牆面 ${i+1}</button>`;
+            });
+            header.innerHTML = html;
+        }
+
+        function switchTab(id) {
+            activeTab = id;
+            document.getElementById('view-title').innerText = (id === 'floor') ? '地坪平面圖' : `牆面 ${id + 1} 展開圖`;
+            updateTabs();
+            updateAll();
+        }
+
+        function updateAll() {
+            const fGapH = parseFloat(document.getElementById('f-gap-h').value) || 0;
+            const fGapV = parseFloat(document.getElementById('f-gap-v').value) || 0;
+            const tfw = parseFloat(document.getElementById('tile-f-w').value) || 1;
+            const tfh = parseFloat(document.getElementById('tile-f-h').value) || 1;
+            const fOffX = parseFloat(document.getElementById('f-off-x').value) || 0;
+            const fOffY = parseFloat(document.getElementById('f-off-y').value) || 0;
+
+            const wGapH = parseFloat(document.getElementById('w-gap-h').value) || 0;
+            const wGapV = parseFloat(document.getElementById('w-gap-v').value) || 0;
+            const tww = parseFloat(document.getElementById('tile-w-w').value) || 1;
+            const twh = parseFloat(document.getElementById('tile-w-h').value) || 1;
+            const wOffX = parseFloat(document.getElementById('w-off-x').value) || 0;
+            const wOffY = parseFloat(document.getElementById('w-off-y').value) || 0;
+
+            const wallH = parseFloat(document.getElementById('wall-height').value) || 1;
+            const showIdx = document.getElementById('show-index')?.checked || false;
+            const extraLossRate = (parseFloat(document.getElementById('custom-loss-rate').value) || 0);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (activeTab === 'floor') {
+                const areaM2 = calculatePolyArea(points) / 10000;
+                const tw_g = tfw + fGapV;
+                const th_g = tfh + fGapH;
+                const stats = drawFloorView(tw_g, th_g, showIdx, fGapV, fGapH, fOffX, fOffY);
+                
+                document.getElementById('stat-area').innerText = areaM2.toFixed(2);
+                document.getElementById('stat-theoretical').innerText = (areaM2 / ((tw_g * th_g) / 10000)).toFixed(1);
+                document.getElementById('stat-count').innerText = Math.ceil(stats.total);
+                document.getElementById('stat-full').innerText = stats.full;
+                document.getElementById('stat-half').innerText = stats.half;
+                document.getElementById('stat-opening-deduction').innerText = "0.00 m²";
+            } else {
+                const p1 = points[activeTab], p2 = points[(activeTab + 1) % points.length];
+                const edgeLen = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+                const opsOnWall = openings.filter(o => parseInt(o.wallIdx) === activeTab);
+                const totalWallAreaM2 = (edgeLen * wallH) / 10000;
+                const opAreaM2 = opsOnWall.reduce((acc, o) => acc + (o.w * o.h), 0) / 10000;
+                const netWallAreaM2 = Math.max(0, totalWallAreaM2 - opAreaM2);
+                const tw_g = tww + wGapV;
+                const th_g = twh + wGapH;
+                const stats = drawWallView(edgeLen, wallH, tw_g, th_g, opsOnWall, showIdx, wGapV, wGapH, wOffX, wOffY);
+                
+                document.getElementById('stat-area').innerText = netWallAreaM2.toFixed(2);
+                document.getElementById('stat-opening-deduction').innerText = opAreaM2.toFixed(2) + " m²";
+                document.getElementById('stat-theoretical').innerText = (netWallAreaM2 / ((tw_g * th_g) / 10000)).toFixed(1);
+                document.getElementById('stat-count').innerText = Math.ceil(stats.total);
+                document.getElementById('stat-full').innerText = stats.full;
+                document.getElementById('stat-half').innerText = stats.half;
+            }
+            calculateGrandTotals(tfw, tfh, fGapH, fGapV, fOffX, fOffY, tww, twh, wGapH, wGapV, wOffX, wOffY, wallH, extraLossRate);
+        }
+
+        function drawFloorView(tw_g, th_g, showIdx, gV, gH, offX, offY) {
+            const minX = Math.min(...points.map(p => p.x)), maxX = Math.max(...points.map(p => p.x));
+            const minY = Math.min(...points.map(p => p.y)), maxY = Math.max(...points.map(p => p.y));
+            const polyW = maxX - minX, polyH = maxY - minY;
+            const padding = 200;
+            const containerW = canvas.parentElement.clientWidth;
+            const scale = Math.min((containerW - padding) / polyW, 500 / polyH, 1.0);
+            
+            canvas.width = polyW * scale + padding;
+            canvas.height = polyH * scale + padding;
+            const tx = (padding/2) - minX * scale, ty = (padding/2) - minY * scale;
+
+            ctx.save(); ctx.translate(tx, ty);
+            const path = new Path2D();
+            points.forEach((p, i) => i === 0 ? path.moveTo(p.x*scale, p.y*scale) : path.lineTo(p.x*scale, p.y*scale));
+            path.closePath();
+            ctx.fillStyle = '#f8fafc'; ctx.fill(path);
+
+            // 繪製磁磚 (考慮偏移)
+            let total = 0, full = 0, half = 0, idx = 1;
+            // 計算起始循環位置
+            const gridStartX = Math.floor((minX - offX) / tw_g) * tw_g + offX;
+            const gridStartY = Math.floor((minY - offY) / th_g) * th_g + offY;
+
+            for (let y = gridStartY; y < maxY + th_g; y += th_g) {
+                for (let x = gridStartX; x < maxX + tw_g; x += tw_g) {
+                    const ratio = getIntersectArea(x, y, tw_g, th_g, points) / (tw_g * th_g);
+                    if (ratio <= 0.001) continue;
+                    const isHalf = ratio <= 0.5;
+                    total += isHalf ? 0.5 : 1.0;
+                    if(isHalf) half++; else full++;
+                    const drawW = tw_g - gV, drawH = th_g - gH;
+                    ctx.fillStyle = isHalf ? '#fb923c' : 'white';
+                    ctx.fillRect(x*scale, y*scale, drawW*scale, drawH*scale);
+                    ctx.strokeStyle = isHalf ? '#ea580c' : '#e2e8f0';
+                    ctx.lineWidth = 1; ctx.strokeRect(x*scale, y*scale, drawW*scale, drawH*scale);
+                    if(showIdx) {
+                        ctx.fillStyle = isHalf ? '#ffffff' : '#94a3b8';
+                        ctx.font = 'bold 9px Inter'; ctx.textAlign = 'center';
+                        ctx.fillText(idx++, (x + drawW/2)*scale, (y + drawH/2)*scale + 4);
+                    }
+                }
+            }
+            
+            ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 3; ctx.stroke(path);
+            drawDimensions(points, scale);
+
+            // 繪製頂點與標註
+            points.forEach((p, i) => {
+                const px = p.x * scale, py = p.y * scale;
+                ctx.fillStyle = '#2563eb';
+                ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.fillStyle = '#1e40af'; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center';
+                ctx.fillText(i + 1, px, py - 10);
+            });
+
+            ctx.restore();
+            return { total, full, half };
+        }
+
+        function drawDimensions(pts, scale) {
+            ctx.save();
+            const offsetDist = 45;
+            pts.forEach((p1, i) => {
+                const p2 = pts[(i + 1) % pts.length];
+                const dx = (p2.x - p1.x), dy = (p2.y - p1.y);
+                const length = Math.sqrt(dx*dx + dy*dy);
+                const nx = dy / length, ny = -dx / length;
+                const x1 = p1.x * scale + nx * offsetDist, y1 = p1.y * scale + ny * offsetDist;
+                const x2 = p2.x * scale + nx * offsetDist, y2 = p2.y * scale + ny * offsetDist;
+
+                ctx.setLineDash([2, 4]); ctx.strokeStyle = '#f87171'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(p1.x * scale + nx * 5, p1.y * scale + ny * 5); ctx.lineTo(x1, y1);
+                ctx.moveTo(p2.x * scale + nx * 5, p2.y * scale + ny * 5); ctx.lineTo(x2, y2); ctx.stroke();
+
+                ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+
+                const angle = Math.atan2(dy, dx);
+                const tick = (tx, ty) => {
+                    ctx.save(); ctx.translate(tx, ty); ctx.rotate(angle + Math.PI/4);
+                    ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(6, 0); ctx.stroke(); ctx.restore();
+                };
+                tick(x1, y1); tick(x2, y2);
+
+                ctx.save();
+                ctx.translate((x1+x2)/2, (y1+y2)/2);
+                let textAngle = angle;
+                if (textAngle > Math.PI/2 || textAngle < -Math.PI/2) textAngle += Math.PI;
+                ctx.rotate(textAngle);
+                ctx.fillStyle = '#b91c1c'; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+                ctx.fillText(`${Math.round(length)} cm`, 0, -5);
+                ctx.restore();
+            });
+            ctx.restore();
+        }
+
+        function drawWallView(w, h, tw_g, th_g, wallOps, showIdx, gV, gH, offX, offY) {
+            const padding = 100;
+            const containerW = canvas.parentElement.clientWidth;
+            const scale = Math.min((containerW - padding) / w, 450 / h, 1.0);
+            canvas.width = w * scale + padding; canvas.height = h * scale + padding;
+            ctx.save(); ctx.translate(padding/2, padding/2);
+            ctx.fillStyle = '#f1f5f9'; ctx.fillRect(0, 0, w*scale, h*scale);
+            
+            let total = 0, full = 0, half = 0, idx = 1;
+            const gridStartX = Math.floor((-offX) / tw_g) * tw_g + offX;
+            const gridStartY = Math.floor((-offY) / th_g) * th_g + offY;
+
+            for (let y = gridStartY; y < h + th_g; y += th_g) {
+                for (let x = gridStartX; x < w + tw_g; x += tw_g) {
+                    const area = calculateTileInWallArea({x, y, w: tw_g, h: th_g}, w, h, wallOps);
+                    const ratio = area / (tw_g * th_g);
+                    if (ratio <= 0.001) continue;
+                    const isHalf = ratio <= 0.5;
+                    total += isHalf ? 0.5 : 1.0;
+                    if(isHalf) half++; else full++;
+                    const drawW = tw_g - gV, drawH = th_g - gH;
+                    const drawY = (h - y - th_g); // Y軸朝上繪製
+                    ctx.fillStyle = isHalf ? '#fb923c' : 'white';
+                    ctx.fillRect(x*scale, drawY*scale, drawW*scale, drawH*scale);
+                    
+                    ctx.save();
+                    ctx.beginPath(); ctx.rect(x*scale, drawY*scale, drawW*scale, drawH*scale); ctx.clip();
+                    wallOps.forEach(op => {
+                        ctx.fillStyle = '#cbd5e1'; ctx.fillRect(op.offset*scale, (h - op.sill - op.h)*scale, op.w*scale, op.h*scale);
+                    });
+                    ctx.restore();
+                    
+                    ctx.strokeStyle = isHalf ? '#ea580c' : '#e2e8f0';
+                    ctx.strokeRect(x*scale, drawY*scale, drawW*scale, drawH*scale);
+                    
+                    if(showIdx) {
+                        ctx.fillStyle = isHalf ? '#ffffff' : '#94a3b8';
+                        ctx.font = 'bold 9px Inter'; ctx.textAlign = 'center';
+                        ctx.fillText(idx++, (x + drawW/2)*scale, (drawY + drawH/2)*scale + 4);
+                    }
+                }
+            }
+            ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 3; ctx.strokeRect(0, 0, w*scale, h*scale);
+            ctx.restore();
+            return { total, full, half };
+        }
+
+        function calculateTileInWallArea(rect, wallW, wallH, ops) {
+            const x1 = Math.max(0, rect.x), x2 = Math.min(wallW, rect.x + rect.w);
+            const y1 = Math.max(0, rect.y), y2 = Math.min(wallH, rect.y + rect.h);
+            if(x2 <= x1 || y2 <= y1) return 0;
+            let area = (x2 - x1) * (y2 - y1);
+            ops.forEach(op => {
+                const ix1 = Math.max(x1, op.offset), ix2 = Math.min(x2, op.offset + op.w);
+                const iy1 = Math.max(y1, op.sill), iy2 = Math.min(y2, op.sill + op.h);
+                if(ix2 > ix1 && iy2 > iy1) area -= (ix2 - ix1) * (iy2 - iy1);
+            });
+            return Math.max(0, area);
+        }
+
+        function calculateGrandTotals(fw, fh, fgh, fgv, fOffX, fOffY, ww, wh, wgh, wgv, wOffX, wOffY, wallH, extraRate) {
+            const multi = 1 + (extraRate/100);
+            const f_tw_g = fw + fgv, f_th_g = fh + fgh;
+            const fNetArea = calculatePolyArea(points) / 10000;
+            let fActual = 0;
+            const minX = Math.min(...points.map(p => p.x)), maxX = Math.max(...points.map(p => p.x));
+            const minY = Math.min(...points.map(p => p.y)), maxY = Math.max(...points.map(p => p.y));
+            
+            const fGridStartX = Math.floor((minX - fOffX) / f_tw_g) * f_tw_g + fOffX;
+            const fGridStartY = Math.floor((minY - fOffY) / f_th_g) * f_th_g + fOffY;
+
+            for (let y = fGridStartY; y < maxY + f_th_g; y += f_th_g) {
+                for (let x = fGridStartX; x < maxX + f_tw_g; x += f_tw_g) {
+                    const r = getIntersectArea(x, y, f_tw_g, f_th_g, points) / (f_tw_g * f_th_g);
+                    if(r > 0.001) fActual += (r <= 0.5 ? 0.5 : 1.0);
+                }
+            }
+            
+            const w_tw_g = ww + wgv, w_th_g = wh + wgh;
+            let wActual = 0, wNetAreaTotal = 0;
+            points.forEach((_, i) => {
+                const p1 = points[i], p2 = points[(i+1)%points.length];
+                const len = Math.sqrt(Math.pow(p2.x-p1.x,2)+Math.pow(p2.y-p1.y,2));
+                const wallOps = openings.filter(o => parseInt(o.wallIdx) === i);
+                wNetAreaTotal += ((len * wallH) - wallOps.reduce((a,o)=>a+(o.w*o.h),0)) / 10000;
+
+                const wGridStartX = Math.floor((-wOffX) / w_tw_g) * w_tw_g + wOffX;
+                const wGridStartY = Math.floor((-wOffY) / w_th_g) * w_th_g + wOffY;
+
+                for(let y = wGridStartY; y < wallH + w_th_g; y += w_th_g) {
+                    for(let x = wGridStartX; x < len + w_tw_g; x += w_tw_g) {
+                        const r = calculateTileInWallArea({x,y,w:w_tw_g,h:w_th_g}, len, wallH, wallOps) / (w_tw_g*w_th_g);
+                        if(r > 0.001) wActual += (r <= 0.5 ? 0.5 : 1.0);
+                    }
+                }
+            });
+
+            const fTheo = fNetArea / ((f_tw_g * f_th_g) / 10000);
+            const wTheo = wNetAreaTotal / ((w_tw_g * w_th_g) / 10000);
+            
+            document.getElementById('grand-floor-count').innerText = Math.ceil(fActual * multi);
+            document.getElementById('header-floor-loss').innerText = (fTheo > 0 ? (fActual/fTheo - 1)*100 + extraRate : 0).toFixed(1);
+            document.getElementById('header-floor-net').innerText = fNetArea.toFixed(2);
+            
+            document.getElementById('grand-wall-count').innerText = Math.ceil(wActual * multi);
+            document.getElementById('header-wall-loss').innerText = (wTheo > 0 ? (wActual/wTheo - 1)*100 + extraRate : 0).toFixed(1);
+            document.getElementById('header-wall-net').innerText = wNetAreaTotal.toFixed(2);
+        }
+
+        function getIntersectArea(tx, ty, tw, th, poly) {
+            let inside = 0; const s = 5;
+            for(let i=0; i<s; i++) for(let j=0; j<s; j++) {
+                if(isPointInPoly({x: tx + (tw/s)*(i+0.5), y: ty + (th/s)*(j+0.5)}, poly)) inside++;
+            }
+            return (inside/(s*s)) * (tw*th);
+        }
+
+        function isPointInPoly(pt, poly) {
+            let inside = false;
+            for(let i=0, j=poly.length-1; i<poly.length; j=i++) {
+                if(((poly[i].y > pt.y) !== (poly[j].y > pt.y)) && (pt.x < (poly[j].x-poly[i].x)*(pt.y-poly[i].y)/(poly[j].y-poly[i].y)+poly[i].x)) inside = !inside;
+            }
+            return inside;
+        }
+
+        function calculatePolyArea(poly) {
+            let a = 0; for(let i=0; i<poly.length; i++) { let j=(i+1)%poly.length; a += poly[i].x*poly[j].y - poly[j].x*poly[i].y; }
+            return Math.abs(a/2);
+        }
+
+        function editPoint(i, axis, val) { points[i][axis] = parseFloat(val) || 0; updateAll(); }
+        function addPoint() { const last = points[points.length-1]; points.push({x: last.x + 100, y: last.y}); initUI(); updateAll(); }
+        function removePoint(i) { if(points.length > 3) { points.splice(i, 1); openings = openings.filter(o => o.wallIdx < points.length); initUI(); updateAll(); } }
+        function addOpening() { openings.push({ wallIdx: 0, w: 90, h: 210, sill: 0, offset: 20 }); initUI(); updateAll(); }
+        function removeOpening(i) { openings.splice(i, 1); initUI(); updateAll(); }
+        function updateOpening(i, key, val) { openings[i][key] = parseFloat(val); if (key === 'sill' || key === 'h') initUI(); updateAll(); }
+
+        window.addEventListener('resize', updateAll);
+        window.onload = () => { initUI(); updateAll(); };
+    </script>
+</body>
+</html>
